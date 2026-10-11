@@ -32,9 +32,11 @@ export async function POST(request: Request) {
   try {
     const { path, token } = await createImageUploadPath(contentType);
     return NextResponse.json({ path, token, bucket: STORAGE_BUCKET }, { status: 201 });
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[api/upload] createSignedUploadUrl failed:", message);
     return NextResponse.json(
-      { error: "Could not start upload." },
+      { error: `Could not start upload: ${message}` },
       { status: 500 }
     );
   }
