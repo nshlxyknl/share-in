@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse, connection } from "next/server";
 import { getShare } from "@/lib/storage";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
+  await connection();
+
   const { code: raw } = await params;
   const code = raw.trim().toUpperCase();
 
@@ -12,27 +14,34 @@ export async function GET(
     return NextResponse.json({ error: "Invalid code." }, { status: 400 });
   }
 
-  const { record, expired } = await getShare(code);
+  try {
+    const { record, expired } = await getShare(code);
 
-  if (expired) {
+    if (expired) {
+      return NextResponse.json(
+        { error: "This share has expired." },
+        { status: 410 }
+      );
+    }
+
+    if (!record) {
+      return NextResponse.json({ error: "Code not found." }, { status: 404 });
+    }
+
     return NextResponse.json(
-      { error: "This share has expired." },
-      { status: 410 }
+      {
+        code: record.code,
+        type: record.type,
+        content: record.content,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch {
+    return NextResponse.json(
+      { error: "Could not load share." },
+      { status: 500 }
     );
   }
-
-  if (!record) {
-    return NextResponse.json({ error: "Code not found." }, { status: 404 });
-  }
-
-  return NextResponse.json(
-    {
-      code: record.code,
-      type: record.type,
-      content: record.content,
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-    },
-    { headers: { "Cache-Control": "no-store" } }
-  );
 }

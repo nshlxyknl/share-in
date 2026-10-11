@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import styles from "./page.module.css";
 
 type Tab = "create" | "retrieve";
@@ -13,7 +14,7 @@ interface Retrieved {
   expiresAt: number;
 }
 
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 function formatRemaining(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -97,7 +98,8 @@ export default function Home() {
 function CreatePanel() {
   const [mode, setMode] = useState<Mode>("text");
   const [text, setText] = useState("");
-  const [image, setImage] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -108,51 +110,85 @@ function CreatePanel() {
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError("");
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+    if (!picked.type.startsWith("image/")) {
       setError("Please choose an image file.");
       return;
     }
-    if (file.size > MAX_IMAGE_BYTES) {
-      setError("Image is too large (max 4MB).");
+    if (picked.size > MAX_IMAGE_BYTES) {
+      setError("Image is too large (max 5MB).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImage(typeof reader.result === "string" ? reader.result : null);
-      setFileName(file.name);
-    };
-    reader.onerror = () => setError("Could not read that file.");
-    reader.readAsDataURL(file);
+    setFile(picked);
+    setFileName(picked.name);
+    setPreviewUrl(URL.createObjectURL(picked));
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    const payload =
-      mode === "text"
-        ? { type: "text" as const, content: text.trim() }
-        : { type: "image" as const, content: image ?? "" };
-
-    if (mode === "text" && !payload.content) {
+    if (mode === "text" && !text.trim()) {
       setError("Enter some text first.");
       return;
     }
-    if (mode === "image" && !payload.content) {
+    if (mode === "image" && !file) {
       setError("Choose an image first.");
       return;
     }
 
     setBusy(true);
     try {
+      if (mode === "text") {
+        const res = await fetch("/api/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "text", content: text.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? "Something went wrong.");
+          return;
+        }
+        setCreated({ code: data.code, expiresAt: data.expiresAt });
+        return;
+      }
+
+      const upRes = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: file!.type }),
+      });
+      const upData = await upRes.json();
+      if (!upRes.ok) {
+        setError(upData.error ?? "Could not start upload.");
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      const { error: uploadError } = await supabase.storage
+        .from(upData.bucket)
+        .uploadToSignedUrl(upData.path, upData.token, file!, {
+          contentType: file!.type,
+        });
+      if (uploadError) {
+        setError(uploadError.message || "Image upload failed.");
+        return;
+      }
+
       const res = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ type: "image", path: upData.path }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -181,7 +217,11 @@ function CreatePanel() {
   const reset = () => {
     setCreated(null);
     setText("");
-    setImage(null);
+    setFile(null);
+    setPreviewUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return null;
+    });
     setFileName("");
     setError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -234,13 +274,13 @@ function CreatePanel() {
             onChange={onPickFile}
           />
           <label htmlFor="image-input" className={styles.dropzone}>
-            {image ? (
+            {previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className={styles.preview} src={image} alt="Selected preview" />
+              <img className={styles.preview} src={previewUrl} alt="Selected preview" />
             ) : (
               <span className={styles.dropText}>
                 Click to choose an image
-                <small>PNG, JPG, GIF or WebP up to 4MB</small>
+                <small>PNG, JPG, GIF or WebP up to 5MB</small>
               </span>
             )}
           </label>
