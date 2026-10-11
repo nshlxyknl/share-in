@@ -91,8 +91,27 @@ async function generateUniqueCode(): Promise<string> {
   return randomCode(10);
 }
 
+let bucketReady = false;
+
+/** Creates the storage bucket on first use if it doesn't already exist. */
+async function ensureBucket(sb: SupabaseClient): Promise<void> {
+  if (bucketReady) return;
+  const { error } = await sb.storage.getBucket(STORAGE_BUCKET);
+  if (error) {
+    const { error: createError } = await sb.storage.createBucket(
+      STORAGE_BUCKET,
+      { public: false }
+    );
+    if (createError && !/already exists/i.test(createError.message)) {
+      throw createError;
+    }
+  }
+  bucketReady = true;
+}
+
 async function signImageUrl(path: string, expiresAt: number): Promise<string> {
   const sb = getAdmin();
+  await ensureBucket(sb);
   const remaining = Math.max(
     60,
     Math.min(3600, Math.ceil((expiresAt - Date.now()) / 1000))
@@ -109,6 +128,7 @@ export async function createImageUploadPath(
   contentType: string
 ): Promise<{ path: string; token: string }> {
   const sb = getAdmin();
+  await ensureBucket(sb);
   const path = `${randomCode(12)}${extensionFor(contentType)}`;
   const { data, error } = await sb.storage
     .from(STORAGE_BUCKET)
