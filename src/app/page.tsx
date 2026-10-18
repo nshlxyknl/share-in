@@ -11,6 +11,7 @@ interface Retrieved {
   code: string;
   type: Mode;
   content: string;
+  downloadUrl?: string;
   expiresAt: number;
 }
 
@@ -339,11 +340,23 @@ function RetrievePanel() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Retrieved | null>(null);
   const [expired, setExpired] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleExpire = useCallback(() => {
     setResult(null);
     setExpired(true);
   }, []);
+
+  const copyText = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Could not copy. Select the text manually.");
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -429,9 +442,31 @@ function RetrievePanel() {
             <pre className={styles.resultText}>{result.content}</pre>
           )}
 
-          <button className={styles.secondary} type="button" onClick={clearTimer}>
-            Clear
-          </button>
+          <div className={styles.actions}>
+            {result.type === "image"
+              ? result.downloadUrl && (
+                  <a
+                    className={styles.secondary}
+                    href={result.downloadUrl}
+                    download
+                    rel="noopener noreferrer"
+                  >
+                    Download image
+                  </a>
+                )
+              : (
+                  <button
+                    className={styles.secondary}
+                    type="button"
+                    onClick={copyText}
+                  >
+                    {copied ? "Copied" : "Copy text"}
+                  </button>
+                )}
+            <button className={styles.secondary} type="button" onClick={clearTimer}>
+              Clear
+            </button>
+          </div>
         </div>
       )}
     </form>

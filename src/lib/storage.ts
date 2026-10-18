@@ -10,6 +10,7 @@ export interface ShareRecord {
   code: string;
   type: ShareType;
   content: string;
+  downloadUrl?: string;
   createdAt: number;
   expiresAt: number;
 }
@@ -66,11 +67,16 @@ function extensionFor(contentType: string): string {
   return map[contentType.toLowerCase()] ?? ".bin";
 }
 
-function toRecord(row: ShareRow, content: string): ShareRecord {
+function toRecord(
+  row: ShareRow,
+  content: string,
+  downloadUrl?: string
+): ShareRecord {
   return {
     code: row.code,
     type: row.type,
     content,
+    downloadUrl,
     createdAt: Date.parse(row.created_at),
     expiresAt: Date.parse(row.expires_at),
   };
@@ -109,18 +115,26 @@ async function ensureBucket(sb: SupabaseClient): Promise<void> {
   bucketReady = true;
 }
 
-async function signImageUrl(path: string, expiresAt: number): Promise<string> {
+async function signImageUrls(
+  path: string,
+  expiresAt: number
+): Promise<{ url: string; downloadUrl: string }> {
   const sb = getAdmin();
   await ensureBucket(sb);
   const remaining = Math.max(
     60,
     Math.min(3600, Math.ceil((expiresAt - Date.now()) / 1000))
   );
-  const { data, error } = await sb.storage
-    .from(STORAGE_BUCKET)
-    .createSignedUrl(path, remaining);
-  if (error) throw error;
-  return data.signedUrl;
+  const filename = path.split("/").pop() || "image";
+  const [display, download] = await Promise.all([
+    sb.storage.from(STORAGE_BUCKET).createSignedUrl(path, remaining),
+    sb.storage.from(STORAGE_BUCKET).createSignedUrl(path, remaining, {
+      download: filename,
+    }),
+  ]);
+  if (display.error) throw display.error;
+  if (download.error) throw download.error;
+  return { url: display.data.signedUrl, downloadUrl: download.data.signedUrl };
 }
 
 /** Creates a signed URL the browser can upload to directly, bypassing the server. */
@@ -177,8 +191,8 @@ export async function getShare(
   }
 
   if (data.type === "image") {
-    const content = await signImageUrl(data.path ?? "", expiresAt);
-    return { record: toRecord(data, content), expired: false };
+    const { url, downloadUrl } = await signImageUrls(data.path ?? "", expiresAt);
+    return { record: toRecord(data, url, downloadUrl), expired: false };
   }
   return { record: toRecord(data, data.content ?? ""), expired: false };
 }

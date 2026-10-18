@@ -33,6 +33,7 @@ export async function GET(
         code: record.code,
         type: record.type,
         content: record.content,
+        downloadUrl: record.downloadUrl,
         createdAt: record.createdAt,
         expiresAt: record.expiresAt,
       },
