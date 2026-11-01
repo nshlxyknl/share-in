@@ -118,7 +118,7 @@ async function ensureBucket(sb: SupabaseClient): Promise<void> {
 async function signImageUrls(
   path: string,
   expiresAt: number
-): Promise<{ url: string; downloadUrl: string }> {
+): Promise<{ url: string; downloadUrl?: string }> {
   const sb = getAdmin();
   await ensureBucket(sb);
   const remaining = Math.max(
@@ -133,8 +133,12 @@ async function signImageUrls(
     }),
   ]);
   if (display.error) throw display.error;
-  if (download.error) throw download.error;
-  return { url: display.data.signedUrl, downloadUrl: download.data.signedUrl };
+  // A missing download URL should not break retrieval; the client can fall
+  // back to downloading the display URL itself.
+  return {
+    url: display.data.signedUrl,
+    downloadUrl: download.error ? undefined : download.data.signedUrl,
+  };
 }
 
 /** Creates a signed URL the browser can upload to directly, bypassing the server. */

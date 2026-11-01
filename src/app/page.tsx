@@ -341,11 +341,46 @@ function RetrievePanel() {
   const [result, setResult] = useState<Retrieved | null>(null);
   const [expired, setExpired] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const handleExpire = useCallback(() => {
     setResult(null);
     setExpired(true);
   }, []);
+
+  const downloadImage = async () => {
+    if (!result) return;
+    const url = result.downloadUrl ?? result.content;
+    setError("");
+    setDownloading(true);
+    try {
+      // Fetch the image ourselves so the browser saves it instead of opening
+      // it in a tab (cross-origin `download` attributes are ignored).
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Could not download image.");
+      const blob = await res.blob();
+      const ext = blob.type.split("/")[1]?.split("+")[0] || "jpg";
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `share-${result.code.toLowerCase()}.${ext}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      // The attachment URL still asks the browser to download it.
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `share-${result.code.toLowerCase()}`;
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const copyText = async () => {
     if (!result) return;
@@ -443,26 +478,24 @@ function RetrievePanel() {
           )}
 
           <div className={styles.actions}>
-            {result.type === "image"
-              ? result.downloadUrl && (
-                  <a
-                    className={styles.secondary}
-                    href={result.downloadUrl}
-                    download
-                    rel="noopener noreferrer"
-                  >
-                    Download image
-                  </a>
-                )
-              : (
-                  <button
-                    className={styles.secondary}
-                    type="button"
-                    onClick={copyText}
-                  >
-                    {copied ? "Copied" : "Copy text"}
-                  </button>
-                )}
+            {result.type === "image" ? (
+              <button
+                className={styles.secondary}
+                type="button"
+                onClick={downloadImage}
+                disabled={downloading}
+              >
+                {downloading ? "Downloading..." : "Download image"}
+              </button>
+            ) : (
+              <button
+                className={styles.secondary}
+                type="button"
+                onClick={copyText}
+              >
+                {copied ? "Copied" : "Copy text"}
+              </button>
+            )}
             <button className={styles.secondary} type="button" onClick={clearTimer}>
               Clear
             </button>

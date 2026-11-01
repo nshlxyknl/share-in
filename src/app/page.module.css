@@ -226,8 +226,13 @@
   transition: background 0.15s;
 }
 
-.secondary:hover {
+.secondary:hover:not(:disabled) {
   background: var(--surface-2);
+}
+
+.secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .error {
